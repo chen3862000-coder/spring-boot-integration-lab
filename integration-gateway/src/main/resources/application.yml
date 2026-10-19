@@ -1,0 +1,68 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: integration-gateway
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/integration_lab?useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:integration}
+    password: ${SPRING_DATASOURCE_PASSWORD:integration}
+  sql:
+    init:
+      mode: always
+
+partner:
+  base-url: ${PARTNER_BASE_URL:http://localhost:8081}
+  connect-timeout: ${PARTNER_CONNECT_TIMEOUT:1s}
+  read-timeout: ${PARTNER_READ_TIMEOUT:2s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,circuitbreakers,ratelimiters
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+resilience4j:
+  retry:
+    instances:
+      partnerApi:
+        max-attempts: ${PARTNER_RETRY_MAX_ATTEMPTS:3}
+        wait-duration: ${PARTNER_RETRY_WAIT:200ms}
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.HttpClientErrorException$TooManyRequests
+        ignore-exceptions:
+          - com.example.integrationgateway.client.PartnerClient$AmbiguousPartnerException
+          - com.example.integrationgateway.client.PartnerClient$NonRetryablePartnerException
+  circuitbreaker:
+    instances:
+      partnerApi:
+        sliding-window-size: ${PARTNER_CB_SLIDING_WINDOW:10}
+        minimum-number-of-calls: ${PARTNER_CB_MIN_CALLS:5}
+        failure-rate-threshold: ${PARTNER_CB_FAILURE_RATE:50}
+        wait-duration-in-open-state: ${PARTNER_CB_OPEN_WAIT:10s}
+        permitted-number-of-calls-in-half-open-state: ${PARTNER_CB_HALF_OPEN_CALLS:2}
+        record-exceptions:
+          - org.springframework.web.client.RestClientResponseException
+          - com.example.integrationgateway.client.PartnerClient$AmbiguousPartnerException
+  ratelimiter:
+    instances:
+      partnerApi:
+        limit-for-period: ${PARTNER_RATE_LIMIT:10}
+        limit-refresh-period: 1s
+        timeout-duration: 0ms
+
+logging:
+  level:
+    com.example: INFO

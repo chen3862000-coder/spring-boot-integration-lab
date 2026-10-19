@@ -1,0 +1,64 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: integration_lab
+      MYSQL_USER: integration
+      MYSQL_PASSWORD: integration
+      MYSQL_ROOT_PASSWORD: integration_root
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uintegration -pintegration --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mock-partner:
+    build:
+      context: .
+      dockerfile: mock-partner/Dockerfile
+    environment:
+      SERVER_PORT: 8081
+    ports:
+      - "${PARTNER_PORT:-8081}:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep UP"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  integration-gateway:
+    build:
+      context: .
+      dockerfile: integration-gateway/Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/integration_lab?useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: integration
+      SPRING_DATASOURCE_PASSWORD: integration
+      PARTNER_BASE_URL: http://mock-partner:8081
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mock-partner:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep UP"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    profiles: ["observability"]
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+volumes:
+  mysql-data:
