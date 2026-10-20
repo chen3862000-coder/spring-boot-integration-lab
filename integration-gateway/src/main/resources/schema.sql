@@ -9,12 +9,12 @@ create table if not exists fulfillment_requests (
     status varchar(30) not null,
     partner_request_id varchar(100),
     partner_reference varchar(100),
+    failure_code varchar(40),
     response_body text,
     message text,
     created_at timestamp(6) not null default current_timestamp(6),
     updated_at timestamp(6) not null default current_timestamp(6) on update current_timestamp(6),
+    index idx_fulfillment_status (status),
     constraint uq_fulfillment_idempotency unique (idempotency_key),
     constraint uq_fulfillment_request_id unique (request_id)
 );
-
-create index if not exists idx_fulfillment_status on fulfillment_requests(status);

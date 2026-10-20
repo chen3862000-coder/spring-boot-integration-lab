@@ -4,14 +4,14 @@ services:
     environment:
       MYSQL_DATABASE: integration_lab
       MYSQL_USER: integration
-      MYSQL_PASSWORD: integration
-      MYSQL_ROOT_PASSWORD: integration_root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-integration_local_only}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-integration_root_local_only}
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uintegration -pintegration --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uintegration -p$${MYSQL_PASSWORD} --silent"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -22,10 +22,11 @@ services:
       dockerfile: mock-partner/Dockerfile
     environment:
       SERVER_PORT: 8081
+      SPRING_PROFILES_ACTIVE: demo
     ports:
-      - "${PARTNER_PORT:-8081}:8081"
+      - "127.0.0.1:${PARTNER_PORT:-8081}:8081"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep UP"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health | grep -q UP"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -35,19 +36,20 @@ services:
       context: .
       dockerfile: integration-gateway/Dockerfile
     environment:
+      SPRING_PROFILES_ACTIVE: demo
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/integration_lab?useSSL=false&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: integration
-      SPRING_DATASOURCE_PASSWORD: integration
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-integration_local_only}
       PARTNER_BASE_URL: http://mock-partner:8081
     ports:
-      - "${GATEWAY_PORT:-8080}:8080"
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
     depends_on:
       mysql:
         condition: service_healthy
       mock-partner:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep UP"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health | grep -q UP"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -56,7 +58,7 @@ services:
     image: prom/prometheus:v3.7.3
     profiles: ["observability"]
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
 

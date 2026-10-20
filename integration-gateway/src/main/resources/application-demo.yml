@@ -1,0 +1,8 @@
+demo:
+  fault-injection-enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,circuitbreakers,ratelimiters

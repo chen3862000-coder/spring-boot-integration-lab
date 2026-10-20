@@ -13,6 +13,7 @@ public record FulfillmentRecord(
         FulfillmentStatus status,
         String partnerRequestId,
         String partnerReference,
+        String failureCode,
         String responseBody,
         String message,
         Instant createdAt,

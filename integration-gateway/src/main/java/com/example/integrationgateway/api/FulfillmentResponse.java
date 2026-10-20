@@ -10,6 +10,7 @@ public record FulfillmentResponse(
         String orderId,
         FulfillmentStatus status,
         String partnerReference,
+        String failureCode,
         String message,
         Instant updatedAt) {
 
@@ -19,6 +20,7 @@ public record FulfillmentResponse(
                 record.orderId(),
                 record.status(),
                 record.partnerReference(),
+                record.failureCode(),
                 record.message(),
                 record.updatedAt());
     }

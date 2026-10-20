@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PartnerControllerTests {
 
     private final PartnerFulfillmentService service = new PartnerFulfillmentService();
-    private final PartnerController controller = new PartnerController(service);
+    private final PartnerController controller = new PartnerController(service, true);
 
     @Test
     void duplicateIdempotencyKeyReturnsSameLogicalOperation() throws Exception {

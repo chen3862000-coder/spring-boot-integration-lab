@@ -21,7 +21,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics,circuitbreakers,ratelimiters
+        include: health,info
   endpoint:
     health:
       probes:
@@ -56,6 +56,8 @@ resilience4j:
         record-exceptions:
           - org.springframework.web.client.RestClientResponseException
           - com.example.integrationgateway.client.PartnerClient$AmbiguousPartnerException
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
   ratelimiter:
     instances:
       partnerApi:
@@ -66,3 +68,6 @@ resilience4j:
 logging:
   level:
     com.example: INFO
+
+demo:
+  fault-injection-enabled: ${DEMO_FAULT_INJECTION_ENABLED:false}
