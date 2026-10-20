@@ -18,6 +18,10 @@ public class CorrelationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String correlationId = request.getHeader(Correlation.HEADER);
+        if (correlationId != null && correlationId.length() > 128) {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "X-Correlation-ID must be at most 128 characters");
+            return;
+        }
         if (correlationId == null || correlationId.isBlank()) {
             correlationId = UUID.randomUUID().toString();
         }

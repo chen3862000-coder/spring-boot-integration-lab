@@ -1,6 +1,6 @@
 # Failure Scenarios
 
-Use the `X-Partner-Fault` header through the gateway for deterministic demonstrations.
+Start with `docker compose up --build`. The local Compose `demo` profile enables `X-Partner-Fault` forwarding through the gateway; the default application profile ignores the header.
 
 - `HTTP_500`: verifies bounded retry and circuit breaker accounting.
 - `HTTP_429`: verifies explicit retry classification for partner rate limiting.

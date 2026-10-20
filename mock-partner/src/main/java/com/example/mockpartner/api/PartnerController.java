@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,9 +23,13 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/partner")
 public class PartnerController {
     private final PartnerFulfillmentService service;
+    private final boolean faultInjectionEnabled;
 
-    public PartnerController(PartnerFulfillmentService service) {
+    public PartnerController(
+            PartnerFulfillmentService service,
+            @Value("${demo.fault-injection-enabled:false}") boolean faultInjectionEnabled) {
         this.service = service;
+        this.faultInjectionEnabled = faultInjectionEnabled;
     }
 
     @PostMapping("/fulfillments")
@@ -32,7 +37,7 @@ public class PartnerController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader(value = "X-Partner-Fault", required = false) String fault,
             @Valid @RequestBody PartnerRequestBody body) throws InterruptedException {
-        FaultScenario scenario = FaultScenario.from(fault);
+        FaultScenario scenario = faultInjectionEnabled ? FaultScenario.from(fault) : FaultScenario.NORMAL;
         switch (scenario) {
             case HTTP_500 -> throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Injected partner HTTP 500");
             case HTTP_429 -> throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Injected partner HTTP 429");

@@ -3,13 +3,15 @@ package com.example.integrationgateway.client;
 import com.example.integrationgateway.application.PartnerUnavailableException;
 import com.example.integrationgateway.config.PartnerClientProperties;
 import com.example.integrationgateway.persistence.FulfillmentRecord;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
-import io.github.resilience4j.retry.annotation.Retry;
-import org.springframework.http.HttpStatusCode;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
+import io.github.resilience4j.retry.RetryRegistry;
+import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -19,11 +21,23 @@ import java.net.http.HttpClient;
 @Component
 public class PartnerClient {
 
-    private final RestClient restClient;
+    private static final Logger log = LoggerFactory.getLogger(PartnerClient.class);
 
-    public PartnerClient(PartnerClientProperties properties) {
+    private final RestClient restClient;
+    private final boolean faultInjectionEnabled;
+    private final io.github.resilience4j.retry.Retry retry;
+    private final io.github.resilience4j.circuitbreaker.CircuitBreaker circuitBreaker;
+    private final io.github.resilience4j.ratelimiter.RateLimiter rateLimiter;
+
+    public PartnerClient(
+            PartnerClientProperties properties,
+            @Value("${demo.fault-injection-enabled:false}") boolean faultInjectionEnabled,
+            RetryRegistry retryRegistry,
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            RateLimiterRegistry rateLimiterRegistry) {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(properties.connectTimeout())
+                .version(HttpClient.Version.HTTP_1_1)
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(properties.readTimeout());
@@ -31,27 +45,35 @@ public class PartnerClient {
                 .baseUrl(properties.baseUrl())
                 .requestFactory(requestFactory)
                 .build();
+        this.faultInjectionEnabled = faultInjectionEnabled;
+        this.retry = retryRegistry.retry("partnerApi");
+        this.circuitBreaker = circuitBreakerRegistry.circuitBreaker("partnerApi");
+        this.rateLimiter = rateLimiterRegistry.rateLimiter("partnerApi");
     }
 
-    @Retry(name = "partnerApi")
-    @CircuitBreaker(name = "partnerApi", fallbackMethod = "partnerUnavailable")
-    @RateLimiter(name = "partnerApi")
     public PartnerResponse createFulfillment(FulfillmentRecord record, String idempotencyKey, String partnerFault) {
+        try {
+            return rateLimiter.executeSupplier(() -> circuitBreaker.executeSupplier(
+                    () -> retry.executeSupplier(() -> sendFulfillment(record, idempotencyKey, partnerFault))));
+        } catch (CallNotPermittedException ex) {
+            throw new PartnerUnavailableException("Partner circuit is open", ex);
+        }
+    }
+
+    private PartnerResponse sendFulfillment(FulfillmentRecord record, String idempotencyKey, String partnerFault) {
         try {
             RestClient.RequestBodySpec requestSpec = restClient.post()
                     .uri("/partner/fulfillments")
                     .header("Idempotency-Key", idempotencyKey)
                     .header("X-Correlation-ID", Correlation.current());
-            if (partnerFault != null && !partnerFault.isBlank()) {
+            if (faultInjectionEnabled && partnerFault != null && !partnerFault.isBlank()) {
                 requestSpec.header("X-Partner-Fault", partnerFault);
             }
             return requestSpec.body(new PartnerRequest(record.requestId(), record.orderId(), record.sku(), record.quantity()))
                     .retrieve()
-                    .onStatus(HttpStatusCode::is4xxClientError, (request, response) -> {
-                        throw new HttpClientErrorException(response.getStatusCode(), "Non-retryable partner response");
-                    })
                     .body(PartnerResponse.class);
         } catch (ResourceAccessException ex) {
+            log.warn("Partner HTTP transport failure for requestId={}", record.requestId(), ex);
             throw new AmbiguousPartnerException("Partner write timed out or connection failed; execution may have reached partner", ex);
         } catch (RestClientResponseException ex) {
             if (ex.getStatusCode().value() == 429 || ex.getStatusCode().is5xxServerError()) {
@@ -68,11 +90,6 @@ public class PartnerClient {
                 .header("X-Correlation-ID", Correlation.current())
                 .retrieve()
                 .body(PartnerResponse.class);
-    }
-
-    @SuppressWarnings("unused")
-    PartnerResponse partnerUnavailable(FulfillmentRecord record, String idempotencyKey, String partnerFault, Throwable throwable) {
-        throw new PartnerUnavailableException("Partner circuit is open or dependency is unavailable", throwable);
     }
 
     public record PartnerRequest(String partnerRequestId, String orderId, String sku, int quantity) {

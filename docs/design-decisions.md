@@ -4,6 +4,8 @@
 
 A unique constraint on `idempotency_key` is the concurrency control mechanism. This is safer than in-memory locks because it works across threads and future gateway replicas.
 
+The MySQL schema declares its status index inside `CREATE TABLE`, and repository updates use an update followed by a select in a short transaction. No PostgreSQL `RETURNING` syntax is used.
+
 ## Conservative write retry
 
 The gateway retries selected partner failures, but ambiguous write timeouts are not blindly retried. The mock partner supports idempotency keys so duplicate writes can be safely deduplicated when retries occur.

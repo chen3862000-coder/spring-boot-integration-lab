@@ -3,6 +3,7 @@ package com.example.integrationgateway;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -12,9 +13,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
@@ -28,9 +32,10 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.badRequest;
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
@@ -40,8 +45,10 @@ import static com.github.tomakehurst.wiremock.client.WireMock.serverError;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 @Testcontainers
+@ActiveProfiles("demo")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class IntegrationGatewayApplicationTests {
 
@@ -55,6 +62,12 @@ class IntegrationGatewayApplicationTests {
 
     @Autowired
     ObjectMapper objectMapper;
+
+    @Autowired
+    CircuitBreakerRegistry circuitBreakerRegistry;
+
+    @Autowired
+    RateLimiterRegistry rateLimiterRegistry;
 
     HttpClient httpClient = HttpClient.newHttpClient();
 
@@ -74,11 +87,25 @@ class IntegrationGatewayApplicationTests {
         registry.add("spring.datasource.username", mysql::getUsername);
         registry.add("spring.datasource.password", mysql::getPassword);
         registry.add("partner.base-url", () -> partner.baseUrl());
-        registry.add("partner.read-timeout", () -> "500ms");
-        registry.add("resilience4j.circuitbreaker.instances.partnerApi.minimum-number-of-calls", () -> "3");
-        registry.add("resilience4j.circuitbreaker.instances.partnerApi.sliding-window-size", () -> "4");
+        registry.add("partner.read-timeout", () -> "5s");
+        registry.add("resilience4j.circuitbreaker.instances.partnerApi.minimum-number-of-calls", () -> "1");
+        registry.add("resilience4j.circuitbreaker.instances.partnerApi.sliding-window-size", () -> "10");
+        registry.add("resilience4j.circuitbreaker.instances.partnerApi.failure-rate-threshold", () -> "50");
         registry.add("resilience4j.circuitbreaker.instances.partnerApi.wait-duration-in-open-state", () -> "1s");
-        registry.add("resilience4j.ratelimiter.instances.partnerApi.limit-for-period", () -> "3");
+        registry.add("resilience4j.circuitbreaker.instances.partnerApi.automatic-transition-from-open-to-half-open-enabled", () -> "true");
+        registry.add("resilience4j.ratelimiter.instances.partnerApi.limit-for-period", () -> "100");
+        registry.add("resilience4j.retry.instances.partnerApi.max-attempts", () -> "3");
+        registry.add("resilience4j.circuitbreaker.instances.partnerApi.wait-duration-in-open-state", () -> "1s");
+        registry.add("demo.fault-injection-enabled", () -> "true");
+    }
+
+    @BeforeEach
+    void resetResilienceAndPartner() throws InterruptedException {
+        partner.resetAll();
+        circuitBreakerRegistry.circuitBreaker("partnerApi").reset();
+        rateLimiterRegistry.rateLimiter("partnerApi").drainPermissions();
+        rateLimiterRegistry.rateLimiter("partnerApi").changeLimitForPeriod(100);
+        Thread.sleep(1_100);
     }
 
     @Test
@@ -134,12 +161,11 @@ class IntegrationGatewayApplicationTests {
 
     @Test
     void serverFailureRetriesButBadRequestDoesNot() {
-        partner.resetAll();
         partner.stubFor(post("/partner/fulfillments")
                 .inScenario("retry")
                 .whenScenarioStateIs("Started")
                 .willSetStateTo("second")
-                .willReturn(serverError()));
+                .willReturn(aResponse().withStatus(500).withFixedDelay(10)));
         partner.stubFor(post("/partner/fulfillments")
                 .inScenario("retry")
                 .whenScenarioStateIs("second")
@@ -147,7 +173,8 @@ class IntegrationGatewayApplicationTests {
                         {"partnerRequestId":"REQ-R","orderId":"ORDER-R","status":"COMPLETED","partnerReference":"PARTNER-R"}
                         """)));
 
-        assertThat(submit("retry-key-" + UUID.randomUUID(), body("ORDER-R")).status()).isEqualTo(HttpStatus.CREATED);
+        SimpleResponse retried = submit("retry-key-" + UUID.randomUUID(), body("ORDER-R"));
+        assertThat(retried.status()).as("response body: %s", retried.body()).isEqualTo(HttpStatus.CREATED);
         partner.verify(2, postRequestedFor(urlEqualTo("/partner/fulfillments")));
 
         partner.resetAll();
@@ -158,8 +185,7 @@ class IntegrationGatewayApplicationTests {
 
     @Test
     void timeoutAfterCommitIsReconciledWithoutDuplicateWrite() {
-        partner.resetAll();
-        partner.stubFor(post("/partner/fulfillments").willReturn(aResponse().withFixedDelay(800).withBody("""
+        partner.stubFor(post("/partner/fulfillments").willReturn(aResponse().withFixedDelay(6_000).withBody("""
                 {"partnerRequestId":"REQ-T","orderId":"ORDER-T","status":"COMPLETED","partnerReference":"PARTNER-T"}
                 """).withHeader("Content-Type", "application/json")));
         partner.stubFor(get(urlPathMatching("/partner/fulfillments/.*")).willReturn(okJson("""
@@ -175,7 +201,6 @@ class IntegrationGatewayApplicationTests {
 
     @Test
     void correlationIdIsPropagatedAndMetricsEndpointIsAvailable() {
-        partner.resetAll();
         partner.stubFor(post("/partner/fulfillments").willReturn(okJson("""
                 {"partnerRequestId":"REQ-CORR","orderId":"ORDER-CORR","status":"COMPLETED","partnerReference":"PARTNER-CORR"}
                 """)));
@@ -188,6 +213,110 @@ class IntegrationGatewayApplicationTests {
         assertThat(response.status()).isEqualTo(HttpStatus.CREATED);
         partner.verify(postRequestedFor(urlEqualTo("/partner/fulfillments")).withHeader("X-Correlation-ID", equalTo(correlationId)));
         assertThat(getText("http://localhost:" + port + "/actuator/prometheus")).contains("integration_requests_total");
+    }
+
+    @Test
+    void partnerRateLimitRetriesThreeTimesThenReturns503AndReplayIsStable() {
+        partner.stubFor(post("/partner/fulfillments").willReturn(aResponse().withStatus(429)));
+        String key = "partner-429-" + UUID.randomUUID();
+
+        SimpleResponse first = submit(key, body("ORDER-429"));
+        SimpleResponse replay = submit(key, body("ORDER-429"));
+
+        assertThat(first.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(first.body().get("failureCode")).isEqualTo("PARTNER_RATE_LIMITED");
+        assertThat(replay.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        partner.verify(3, postRequestedFor(urlEqualTo("/partner/fulfillments")));
+    }
+
+    @Test
+    void serverFailureExhaustsRetriesAndReturns502() {
+        partner.stubFor(post("/partner/fulfillments").willReturn(serverError()));
+
+        SimpleResponse response = submit("exhausted-5xx-" + UUID.randomUUID(), body("ORDER-EXHAUSTED"));
+
+        assertThat(response.status()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(response.body().get("failureCode")).isEqualTo("PARTNER_FAILURE");
+        partner.verify(3, postRequestedFor(urlEqualTo("/partner/fulfillments")));
+    }
+
+    @Test
+    void outboundRateLimiterReturns429AndDoesNotCallPartner() {
+        rateLimiterRegistry.rateLimiter("partnerApi").changeLimitForPeriod(1);
+        rateLimiterRegistry.rateLimiter("partnerApi").drainPermissions();
+        try {
+            Thread.sleep(1_100);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for limiter refresh", ex);
+        }
+        String retryKey = "limit-retry-" + UUID.randomUUID();
+        partner.stubFor(post("/partner/fulfillments").willReturn(okJson("""
+                {"partnerRequestId":"REQ-LIMIT","orderId":"ORDER-LIMIT","status":"COMPLETED","partnerReference":"PARTNER-LIMIT"}
+                """)));
+
+        assertThat(submit("limit-1-" + UUID.randomUUID(), body("ORDER-LIMIT-1")).status())
+                .isEqualTo(HttpStatus.CREATED);
+        SimpleResponse limited = submit(retryKey, body("ORDER-LIMIT-2"));
+
+        assertThat(limited.status()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(limited.body().get("failureCode")).isEqualTo("OUTBOUND_RATE_LIMITED");
+        partner.verify(1, postRequestedFor(urlEqualTo("/partner/fulfillments")));
+
+        await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> {
+            SimpleResponse recovered = submit(retryKey, body("ORDER-LIMIT-2"));
+            assertThat(recovered.status()).isEqualTo(HttpStatus.CREATED);
+        });
+    }
+
+    @Test
+    void circuitOpensThenRecoversAfterSuccessfulHalfOpenProbe() {
+        partner.stubFor(post("/partner/fulfillments").willReturn(serverError()));
+        for (int i = 0; i < 10
+                && !circuitBreakerRegistry.circuitBreaker("partnerApi").getState().name().equals("OPEN"); i++) {
+            submit("cb-fail-" + i + "-" + UUID.randomUUID(), body("ORDER-CB-" + i));
+        }
+        assertThat(circuitBreakerRegistry.circuitBreaker("partnerApi").getState().name()).isEqualTo("OPEN");
+
+        SimpleResponse rejected = submit("cb-open-" + UUID.randomUUID(), body("ORDER-CB-OPEN"));
+        assertThat(rejected.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(rejected.body().get("failureCode")).isEqualTo("CIRCUIT_OPEN");
+
+        partner.resetAll();
+        partner.stubFor(post("/partner/fulfillments").willReturn(okJson("""
+                {"partnerRequestId":"REQ-RECOVER","orderId":"ORDER-RECOVER","status":"COMPLETED","partnerReference":"PARTNER-RECOVER"}
+                """)));
+        await().atMost(2, TimeUnit.SECONDS).untilAsserted(() ->
+                assertThat(circuitBreakerRegistry.circuitBreaker("partnerApi").getState().name()).isEqualTo("HALF_OPEN"));
+        assertThat(submit("cb-recover-" + UUID.randomUUID(), body("ORDER-RECOVER")).status()).isEqualTo(HttpStatus.CREATED);
+        assertThat(circuitBreakerRegistry.circuitBreaker("partnerApi").getState().name()).isEqualTo("CLOSED");
+    }
+
+    @Test
+    void oversizedHeadersAndFieldsReturnBadRequest() {
+        HttpHeaders oversizedIdempotency = headers("x".repeat(201));
+        assertThat(submit(oversizedIdempotency, body("ORDER-LONG")).status()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        Map<String, Object> oversizedBody = Map.of("orderId", "x".repeat(101), "sku", "SKU", "quantity", 1);
+        assertThat(submit("length-key-" + UUID.randomUUID(), oversizedBody).status()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        HttpHeaders oversizedCorrelation = headers("correlation-length-" + UUID.randomUUID());
+        oversizedCorrelation.set("X-Correlation-ID", "c".repeat(129));
+        assertThat(submit(oversizedCorrelation, body("ORDER-CORRELATION-LONG")).status())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void ambiguousTimeoutWithoutPartnerStatusRemainsAcceptedUnknown() {
+        partner.stubFor(post("/partner/fulfillments").willReturn(aResponse().withFixedDelay(6_000).withBody("{}")
+                .withHeader("Content-Type", "application/json")));
+        partner.stubFor(get(urlPathMatching("/partner/fulfillments/.*"))
+                .willReturn(com.github.tomakehurst.wiremock.client.WireMock.notFound()));
+
+        SimpleResponse response = submit("timeout-unknown-" + UUID.randomUUID(), body("ORDER-TIMEOUT-UNKNOWN"));
+
+        assertThat(response.status()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(response.body().get("status")).isEqualTo("UNKNOWN");
     }
 
     private SimpleResponse submit(String key, Map<String, Object> body) {

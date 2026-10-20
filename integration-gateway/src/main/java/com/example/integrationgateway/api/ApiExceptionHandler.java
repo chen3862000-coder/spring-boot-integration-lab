@@ -4,6 +4,7 @@ import com.example.integrationgateway.application.IdempotencyConflictException;
 import com.example.integrationgateway.application.PartnerUnavailableException;
 import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -36,6 +37,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(MissingRequestHeaderException.class)
     ResponseEntity<ErrorResponse> missingHeader(MissingRequestHeaderException ex, HttpServletRequest request) {
         return error(HttpStatus.BAD_REQUEST, "Missing required header: " + ex.getHeaderName(), request);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    ResponseEntity<ErrorResponse> constraint(ConstraintViolationException ex, HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST, "Request header constraints were violated", request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

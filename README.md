@@ -1,5 +1,7 @@
 # Spring Boot Integration Lab
 
+[![Verify](https://github.com/chen3862000-coder/spring-boot-integration-lab/actions/workflows/verify.yml/badge.svg)](https://github.com/chen3862000-coder/spring-boot-integration-lab/actions/workflows/verify.yml)
+
 Building Reliable Integrations with Unreliable External APIs.
 
 This portfolio project demonstrates a focused e-commerce fulfillment gateway that integrates with an unreliable external partner API. It is not a CRUD application; it is a reliability engineering lab for outbound API integration.
@@ -26,7 +28,7 @@ Services:
 
 Prerequisites:
 
-- Java 27+
+- JDK 27
 - Docker with Docker Compose
 - k6 only for opt-in performance tests
 
@@ -40,11 +42,8 @@ Run tests:
 
 ```bash
 ./mvnw clean verify
-make test
 make quality
-make coverage
 make verify
-make integration-test
 ```
 
 Run performance tests after the stack is up:
@@ -116,11 +115,32 @@ curl -i http://localhost:8080/api/fulfillments/{requestId}
 - `202 Accepted`: request is still `PROCESSING` or partner execution outcome is `UNKNOWN`.
 - `400 Bad Request`: invalid payload or missing required header.
 - `409 Conflict`: same `Idempotency-Key` with a different request payload.
-- `429 Too Many Requests`: outbound partner rate limiter rejected the call.
-- `502 Bad Gateway`: confirmed partner rejection or non-retryable integration failure.
-- `503 Service Unavailable`: circuit breaker is open or partner dependency is unavailable.
+- `429 Too Many Requests`: this gateway's outbound rate limiter rejected the call before partner transmission. Retrying the same key can reclaim the request after quota refresh.
+- `502 Bad Gateway`: partner `4xx` other than `429`, or exhausted partner `5xx` retries.
+- `503 Service Unavailable`: circuit breaker is open, or partner `429` retries were exhausted.
+- An ambiguous write timeout or unreadable partner response returns `201` only if status reconciliation confirms completion; otherwise it remains `202 UNKNOWN`.
 
 Statuses are intentionally conservative. A timeout during a write is not automatically treated as a business failure because the partner may already have processed the request.
+
+```mermaid
+sequenceDiagram
+    participant G as Gateway
+    participant DB as MySQL
+    participant P as Mock Partner
+    G->>DB: Register idempotency key (PROCESSING)
+    G->>P: POST fulfillment (same idempotency key)
+    P->>P: Commit fulfillment
+    P--xG: Delayed response / read timeout
+    G->>P: GET partner fulfillment status
+    alt Partner confirms committed operation
+        P-->>G: COMPLETED + partner reference
+        G->>DB: Persist COMPLETED
+        G-->>G: Return 201 / replay as 200
+    else Status cannot be confirmed
+        G->>DB: Persist UNKNOWN
+        G-->>G: Return 202 UNKNOWN
+    end
+```
 
 ## Reliability Patterns
 
@@ -136,7 +156,7 @@ Gateway idempotency does not provide distributed exactly-once execution. Exactly
 
 ## Failure Demonstrations
 
-Pass `X-Partner-Fault` through the gateway to trigger deterministic partner behavior:
+The Compose demo profile enables `X-Partner-Fault` forwarding to trigger deterministic partner behavior:
 
 - `NORMAL`: success.
 - `SLOW_RESPONSE`: slow but eventually successful response.
@@ -145,7 +165,7 @@ Pass `X-Partner-Fault` through the gateway to trigger deterministic partner beha
 - `TIMEOUT_AFTER_COMMIT`: partner commits, then delays long enough for gateway timeout.
 - `SERVICE_UNAVAILABLE`: simulated outage.
 
-The fault header is for local demonstrations and automated tests. Do not expose unrestricted fault-injection controls in production systems.
+The fault header is for local demonstrations and automated tests. Do not expose unrestricted fault-injection controls in production systems. Upstream `429` is retried, then reported as `503` if the configured attempts are exhausted; gateway limiter rejection is `429`.
 
 ## Observability
 
@@ -157,13 +177,15 @@ curl http://localhost:8080/actuator/prometheus
 curl http://localhost:8080/actuator/circuitbreakers
 ```
 
+Diagnostic Actuator endpoints and fault injection are enabled only in the local Compose `demo` profile. The default application profile exposes only health and info endpoints.
+
 Metrics include gateway request counts, idempotency hits/conflicts, unknown outcomes, Resilience4j retry/circuit breaker/rate limiter metrics, and HTTP server/client metrics. Labels intentionally avoid order IDs, request IDs, and idempotency keys.
 
 Logs are structured JSON and include `correlationId` from `X-Correlation-ID` when provided. The gateway propagates that header to the mock partner.
 
 ## Testing
 
-The integration tests use Spring Boot Test, Testcontainers MySQL, and WireMock.
+The integration tests use Spring Boot Test, Testcontainers MySQL, and WireMock. They cover retry exhaustion, gateway limiter rejection, circuit open/recovery, and ambiguous timeout reconciliation in addition to idempotency behavior.
 
 ```bash
 ./mvnw clean verify
@@ -178,8 +200,7 @@ Docker is required for Testcontainers. If Docker is unavailable, integration tes
 `make verify` is the acceptance gate for the project. It runs Maven `clean verify`, which includes:
 
 - Maven Enforcer: JDK 27 and dependency convergence.
-- Checkstyle: import hygiene, basic style, max method length, coupling, and complexity gates.
-- Checkstyle: large class/method checks, executable statement count, complexity, coupling, imports, and basic maintainability rules.
+- Checkstyle: class/method size, executable statement count, complexity, coupling, import hygiene, and basic maintainability rules.
 - PMD CPD: duplicate-code detection for repeated blocks above 80 tokens.
 - JaCoCo: minimum 70% class coverage and 70% method coverage per module.
 
@@ -191,10 +212,15 @@ k6 scripts are opt-in:
 
 ```bash
 BASE_URL=http://localhost:8080 k6 run performance/smoke.js
-BASE_URL=http://localhost:8080 VUS=20 DURATION=60s k6 run performance/load.js
+BASE_URL=http://localhost:8080 PROFILE=baseline k6 run performance/load.js
+BASE_URL=http://localhost:8080 PROFILE=overload k6 run performance/load.js
+BASE_URL=http://localhost:8080 PROFILE=fault k6 run performance/load.js
+make performance-test
+make performance-overload
+make performance-fault
 ```
 
-The load script mixes unique requests, duplicate idempotency keys, and controlled partner failures. No benchmark results are included because results depend on local hardware and must be measured by the person running the test.
+Profiles separate normal baseline behavior from intentional limiter overload and upstream failure injection. The duplicate model reuses the same idempotency key and payload twice per group. No benchmark results are included because k6 has not been run in this environment; record machine details, throughput, p95/p99, error rate, and gateway limiter response rate in `docs/performance-results.md` after execution.
 
 ## Trade-offs
 
@@ -203,18 +229,18 @@ The load script mixes unique requests, duplicate idempotency keys, and controlle
 - The mock partner uses in-memory deduplication for MVP simplicity; its idempotency state is not restart-safe.
 - The rate limiter is process-local. Multiple gateway replicas would need distributed quota coordination for a shared partner limit.
 - There is no background reconciliation worker in this MVP. Ambiguous operations are persisted and can be reconciled through partner status lookup.
-- Authentication, authorization, tracing infrastructure, alerting, and multi-partner routing are intentionally out of scope.
+- Authentication, authorization, tracing infrastructure, alerting, and multi-partner routing are intentionally out of scope. Compose credentials and fault injection are local-demo-only; published ports bind to loopback.
+
+## Production Follow-up
+
+Before public deployment, add authentication/authorization, secrets management, secured Actuator access, durable partner-side idempotency, distributed rate limiting, a reconciliation worker, and operational alerting. The included Compose profile is a local demonstration, not a production deployment configuration.
 
 ## Developer Commands
 
 ```bash
 ./mvnw clean verify
 make run
-make test
 make quality
-make coverage
 make verify
-make integration-test
 make performance-test
-docker compose up --build
 ```

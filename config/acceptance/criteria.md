@@ -13,5 +13,6 @@ Required evidence:
 - Integration tests demonstrate normal fulfillment, duplicate idempotency, payload conflict, concurrent duplicate safety, retry behavior, non-retry behavior, timeout reconciliation, correlation propagation, and metrics exposure.
 - `docker compose up --build` starts `integration-gateway`, `mock-partner`, and `mysql` before demo acceptance is claimed.
 - k6 smoke/load scripts are run only when performance evidence is being reported; do not invent performance results.
+- Partner `429`, gateway outbound limiter `429`, open-circuit `503`, exhausted partner `5xx` `502`, and ambiguous timeout `202 UNKNOWN` semantics are covered by tests.
 
 Environment note: this repository's integration tests require Docker because gateway tests use Testcontainers MySQL.
