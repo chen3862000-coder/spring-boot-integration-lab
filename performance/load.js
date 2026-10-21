@@ -16,6 +16,7 @@ const rateLimited = new Rate('gateway_rate_limited');
 export const options = {
   vus: Number(__ENV.VUS || settings.vus),
   duration: __ENV.DURATION || settings.duration,
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   thresholds: {
     http_req_failed: [settings.failThreshold],
     http_req_duration: ['p(95)<5000'],

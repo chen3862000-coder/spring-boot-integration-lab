@@ -1,0 +1,15 @@
+.git
+.github
+.mvn/wrapper/dists
+**/target
+target
+.idea
+.vscode
+*.iml
+.DS_Store
+*.log
+README.md
+AGENTS.md
+docs
+performance
+config

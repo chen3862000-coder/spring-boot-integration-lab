@@ -1,9 +1,9 @@
-FROM eclipse-temurin:27-jdk AS build
+FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 COPY . .
 RUN ./mvnw -pl integration-gateway -am -DskipTests package
 
-FROM eclipse-temurin:27-jre
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /workspace/integration-gateway/target/integration-gateway-*.jar app.jar
 RUN apt-get update \

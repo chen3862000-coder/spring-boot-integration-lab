@@ -25,6 +25,7 @@ if [ ! -x "$MAVEN_HOME/bin/mvn" ]; then
   else
     (cd "$DIST_DIR" && jar xf "$ARCHIVE")
   fi
+  chmod +x "$MAVEN_HOME/bin/mvn"
 fi
 
 exec "$MAVEN_HOME/bin/mvn" "$@"
