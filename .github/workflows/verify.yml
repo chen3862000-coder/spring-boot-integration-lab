@@ -19,3 +19,81 @@ jobs:
           cache: maven
       - name: Verify quality, tests, and coverage
         run: ./mvnw --batch-mode --no-transfer-progress clean verify
+
+  compose-smoke:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      MYSQL_PORT: 13306
+      GATEWAY_PORT: 18080
+      PARTNER_PORT: 18081
+      MYSQL_PASSWORD: ci_local_only
+      MYSQL_ROOT_PASSWORD: ci_root_local_only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start Compose services
+        run: docker compose up --build -d
+      - name: Wait for core services to become healthy
+        shell: bash
+        run: |
+          set -euo pipefail
+          for service in mysql mock-partner integration-gateway; do
+            container_id="$(docker compose ps -q "$service")"
+            if [[ -z "$container_id" ]]; then
+              echo "Compose did not create service: $service" >&2
+              docker compose ps
+              exit 1
+            fi
+            for attempt in $(seq 1 60); do
+              health="$(docker inspect --format '{{.State.Health.Status}}' "$container_id")"
+              if [[ "$health" == "healthy" ]]; then
+                echo "$service is healthy"
+                break
+              fi
+              if [[ "$health" == "unhealthy" ]]; then
+                docker compose logs "$service"
+                exit 1
+              fi
+              if [[ "$attempt" == "60" ]]; then
+                echo "$service did not become healthy (last state: $health)" >&2
+                docker compose logs "$service"
+                exit 1
+              fi
+              sleep 5
+            done
+          done
+      - name: Smoke normal fulfillment and timeout reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_url="http://127.0.0.1:${GATEWAY_PORT}"
+          normal_body="$(mktemp)"
+          timeout_body="$(mktemp)"
+          trap 'rm -f "$normal_body" "$timeout_body"' EXIT
+
+          normal_status="$(curl --silent --show-error --output "$normal_body" --write-out '%{http_code}' \
+            --request POST "$base_url/api/fulfillments" \
+            --header 'Content-Type: application/json' \
+            --header 'Idempotency-Key: ci-compose-normal' \
+            --data '{"orderId":"ORDER-CI-NORMAL","sku":"SKU-001","quantity":1}')"
+          test "$normal_status" = "201"
+          jq -e '.status == "COMPLETED" and .partnerReference != null' "$normal_body"
+
+          timeout_status="$(curl --silent --show-error --output "$timeout_body" --write-out '%{http_code}' \
+            --request POST "$base_url/api/fulfillments" \
+            --header 'Content-Type: application/json' \
+            --header 'Idempotency-Key: ci-compose-timeout' \
+            --header 'X-Partner-Fault: TIMEOUT_AFTER_COMMIT' \
+            --data '{"orderId":"ORDER-CI-TIMEOUT","sku":"SKU-001","quantity":1}')"
+          test "$timeout_status" = "201"
+          jq -e '.status == "COMPLETED" and .message == "Reconciled after ambiguous partner timeout"' "$timeout_body"
+
+          curl --fail --silent --show-error "http://127.0.0.1:${PARTNER_PORT}/partner/health" \
+            | jq -e '.logicalOperations == 2'
+      - name: Collect Compose logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Stop Compose services and remove volumes
+        if: always()
+        run: docker compose down --volumes --remove-orphans

@@ -95,6 +95,7 @@ class IntegrationGatewayApplicationTests {
         registry.add("resilience4j.circuitbreaker.instances.partnerApi.automatic-transition-from-open-to-half-open-enabled", () -> "true");
         registry.add("resilience4j.ratelimiter.instances.partnerApi.limit-for-period", () -> "100");
         registry.add("resilience4j.retry.instances.partnerApi.max-attempts", () -> "3");
+        registry.add("resilience4j.retry.instances.partnerApi.wait-duration", () -> "1ms");
         registry.add("resilience4j.circuitbreaker.instances.partnerApi.wait-duration-in-open-state", () -> "1s");
         registry.add("demo.fault-injection-enabled", () -> "true");
     }
@@ -216,17 +217,28 @@ class IntegrationGatewayApplicationTests {
     }
 
     @Test
-    void partnerRateLimitRetriesThreeTimesThenReturns503AndReplayIsStable() {
+    void partnerRateLimitCanBeRetriedLaterWithSameIdempotencyKey() {
         partner.stubFor(post("/partner/fulfillments").willReturn(aResponse().withStatus(429)));
         String key = "partner-429-" + UUID.randomUUID();
 
         SimpleResponse first = submit(key, body("ORDER-429"));
-        SimpleResponse replay = submit(key, body("ORDER-429"));
 
         assertThat(first.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(first.body().get("failureCode")).isEqualTo("PARTNER_RATE_LIMITED");
-        assertThat(replay.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         partner.verify(3, postRequestedFor(urlEqualTo("/partner/fulfillments")));
+
+        partner.resetAll();
+        partner.stubFor(post("/partner/fulfillments").willReturn(okJson("""
+                {"partnerRequestId":"REQ-429-RECOVERED","orderId":"ORDER-429","status":"COMPLETED",
+                 "partnerReference":"PARTNER-429-RECOVERED"}
+                """)));
+        SimpleResponse recovered = submit(key, body("ORDER-429"));
+        SimpleResponse replay = submit(key, body("ORDER-429"));
+
+        assertThat(recovered.status()).isEqualTo(HttpStatus.CREATED);
+        assertThat(recovered.body().get("status")).isEqualTo("COMPLETED");
+        assertThat(replay.status()).isEqualTo(HttpStatus.OK);
+        partner.verify(1, postRequestedFor(urlEqualTo("/partner/fulfillments")));
     }
 
     @Test
@@ -267,6 +279,52 @@ class IntegrationGatewayApplicationTests {
             SimpleResponse recovered = submit(retryKey, body("ORDER-LIMIT-2"));
             assertThat(recovered.status()).isEqualTo(HttpStatus.CREATED);
         });
+    }
+
+    @Test
+    void circuitOpenRequestCanBeRetriedWithSameIdempotencyKeyAfterRecovery() {
+        String key = "circuit-retry-" + UUID.randomUUID();
+        partner.stubFor(post("/partner/fulfillments").willReturn(serverError()));
+        for (int i = 0; i < 10
+                && !circuitBreakerRegistry.circuitBreaker("partnerApi").getState().name().equals("OPEN"); i++) {
+            submit("cb-prime-" + i + "-" + UUID.randomUUID(), body("ORDER-CB-PRIME-" + i));
+        }
+        assertThat(circuitBreakerRegistry.circuitBreaker("partnerApi").getState().name()).isEqualTo("OPEN");
+
+        SimpleResponse rejected = submit(key, body("ORDER-CB-RETRY"));
+        assertThat(rejected.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(rejected.body().get("failureCode")).isEqualTo("CIRCUIT_OPEN");
+        assertThat(rejected.body().get("status")).isEqualTo("RETRYABLE_FAILURE");
+
+        partner.resetAll();
+        partner.stubFor(post("/partner/fulfillments").willReturn(okJson("""
+                {"partnerRequestId":"REQ-CB-RETRY","orderId":"ORDER-CB-RETRY","status":"COMPLETED","partnerReference":"PARTNER-CB-RETRY"}
+                """)));
+        await().atMost(2, TimeUnit.SECONDS).untilAsserted(() ->
+                assertThat(circuitBreakerRegistry.circuitBreaker("partnerApi").getState().name()).isEqualTo("HALF_OPEN"));
+
+        SimpleResponse recovered = submit(key, body("ORDER-CB-RETRY"));
+        assertThat(recovered.status()).isEqualTo(HttpStatus.CREATED);
+        assertThat(recovered.body().get("status")).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void eachRetryAttemptRequiresItsOwnOutboundRateLimitPermit() {
+        rateLimiterRegistry.rateLimiter("partnerApi").changeLimitForPeriod(1);
+        rateLimiterRegistry.rateLimiter("partnerApi").drainPermissions();
+        try {
+            Thread.sleep(1_100);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for limiter refresh", ex);
+        }
+        partner.stubFor(post("/partner/fulfillments").willReturn(serverError()));
+
+        SimpleResponse response = submit("retry-limited-" + UUID.randomUUID(), body("ORDER-RETRY-LIMITED"));
+
+        assertThat(response.status()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(response.body().get("failureCode")).isEqualTo("OUTBOUND_RATE_LIMITED");
+        partner.verify(1, postRequestedFor(urlEqualTo("/partner/fulfillments")));
     }
 
     @Test
