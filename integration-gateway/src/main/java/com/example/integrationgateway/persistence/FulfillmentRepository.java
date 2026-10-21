@@ -39,12 +39,12 @@ public class FulfillmentRepository {
             return new Registration(existing, true, true);
         }
         boolean samePayload = requestHash.equals(existing.requestHash());
-        if (samePayload && "OUTBOUND_RATE_LIMITED".equals(existing.failureCode())) {
+        if (samePayload && isRetryableFailure(existing)) {
             int reclaimed = jdbcClient.sql("""
                     update fulfillment_requests
-                    set status = 'PROCESSING', failure_code = null, message = 'Retrying after outbound rate limit'
-                    where idempotency_key = :idempotencyKey and status = 'FAILED'
-                      and failure_code = 'OUTBOUND_RATE_LIMITED'
+                    set status = 'PROCESSING', failure_code = null, message = 'Retrying after transient dependency failure'
+                    where idempotency_key = :idempotencyKey and status = 'RETRYABLE_FAILURE'
+                      and failure_code in ('OUTBOUND_RATE_LIMITED', 'CIRCUIT_OPEN', 'PARTNER_RATE_LIMITED')
                     """)
                     .param("idempotencyKey", idempotencyKey)
                     .update();
@@ -54,6 +54,14 @@ public class FulfillmentRepository {
             existing = findByIdempotencyKey(idempotencyKey).orElseThrow();
         }
         return new Registration(existing, false, samePayload);
+    }
+
+    private boolean isRetryableFailure(FulfillmentRecord record) {
+        return record.status() == FulfillmentStatus.RETRYABLE_FAILURE
+                && switch (record.failureCode()) {
+                    case "OUTBOUND_RATE_LIMITED", "CIRCUIT_OPEN", "PARTNER_RATE_LIMITED" -> true;
+                    default -> false;
+                };
     }
 
     public Optional<FulfillmentRecord> findByIdempotencyKey(String idempotencyKey) {

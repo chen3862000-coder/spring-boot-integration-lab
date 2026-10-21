@@ -53,8 +53,8 @@ public class PartnerClient {
 
     public PartnerResponse createFulfillment(FulfillmentRecord record, String idempotencyKey, String partnerFault) {
         try {
-            return rateLimiter.executeSupplier(() -> circuitBreaker.executeSupplier(
-                    () -> retry.executeSupplier(() -> sendFulfillment(record, idempotencyKey, partnerFault))));
+            return circuitBreaker.executeSupplier(() -> retry.executeSupplier(
+                    () -> rateLimiter.executeSupplier(() -> sendFulfillment(record, idempotencyKey, partnerFault))));
         } catch (CallNotPermittedException ex) {
             throw new PartnerUnavailableException("Partner circuit is open", ex);
         }

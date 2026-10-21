@@ -46,6 +46,8 @@ make quality
 make verify
 ```
 
+GitHub Actions runs both `./mvnw clean verify` and a Docker Compose smoke job. The smoke job builds all three core services, waits for health, checks a normal fulfillment and timeout-after-commit reconciliation against the real mock partner, and removes its containers and volumes afterward.
+
 Run performance tests after the stack is up:
 
 ```bash
@@ -119,6 +121,7 @@ curl -i http://localhost:8080/api/fulfillments/{requestId}
 - `502 Bad Gateway`: partner `4xx` other than `429`, or exhausted partner `5xx` retries.
 - `503 Service Unavailable`: circuit breaker is open, or partner `429` retries were exhausted.
 - An ambiguous write timeout or unreadable partner response returns `201` only if status reconciliation confirms completion; otherwise it remains `202 UNKNOWN`.
+- Transient `429` and open-circuit outcomes persist as `RETRYABLE_FAILURE`; the same key and payload can retry later. Confirmed failures and `UNKNOWN` outcomes are not automatically reclaimed.
 
 Statuses are intentionally conservative. A timeout during a write is not automatically treated as a business failure because the partner may already have processed the request.
 
@@ -147,7 +150,7 @@ sequenceDiagram
 - Timeout: Java HTTP client connect timeout defaults to `1s`; read timeout defaults to `2s`.
 - Retry: Resilience4j retries selected retryable partner failures with exponential backoff. HTTP 400 is not retried.
 - Circuit breaker: Resilience4j opens after repeated partner failures and rejects calls quickly while preserving gateway state.
-- Rate limiting: Resilience4j protects outbound calls to the partner, defaulting to 10 requests per second.
+- Rate limiting: each outbound partner HTTP attempt, including every retry, consumes a Resilience4j permit; the default is 10 attempts per second.
 - Idempotency: MySQL unique constraint on `idempotency_key` prevents duplicate gateway execution ownership.
 - Partner deduplication: the mock partner deduplicates writes by `Idempotency-Key`, demonstrating the external contract needed for safe retry.
 - Reconciliation: ambiguous write timeouts are checked via `GET /partner/fulfillments/{partnerRequestId}` when possible.

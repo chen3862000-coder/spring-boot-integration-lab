@@ -5,6 +5,7 @@ Run `make verify` before claiming the MVP meets the project plan.
 Required evidence:
 
 - `./mvnw clean verify` passes on JDK 27 with Docker available for Testcontainers MySQL.
+- GitHub Actions `compose-smoke` starts the actual Compose images and verifies normal fulfillment plus timeout-after-commit reconciliation against the real mock partner.
 - Checkstyle passes for method length, complexity, coupling, imports, and basic maintainability rules.
 - Checkstyle passes for source-level maintainability gates including size, complexity, imports, and coupling.
 - PMD CPD reports no duplicate blocks above 80 tokens.

@@ -75,18 +75,18 @@ public class FulfillmentService {
             return new SubmitResult(reconciled, true);
         } catch (RequestNotPermitted ex) {
             FulfillmentRecord limited = repository.updateResult(
-                    record.requestId(), FulfillmentStatus.FAILED, null, null, "OUTBOUND_RATE_LIMITED", null,
+                    record.requestId(), FulfillmentStatus.RETRYABLE_FAILURE, null, null, "OUTBOUND_RATE_LIMITED", null,
                     "Gateway outbound partner quota rejected the call");
             return new SubmitResult(limited, true);
         } catch (PartnerUnavailableException ex) {
             FulfillmentRecord updated = repository.updateResult(
-                    record.requestId(), FulfillmentStatus.FAILED, null, null, "CIRCUIT_OPEN", null,
+                    record.requestId(), FulfillmentStatus.RETRYABLE_FAILURE, null, null, "CIRCUIT_OPEN", null,
                     "Outbound partner call was rejected before transmission");
             log.warn("Partner unavailable for requestId={}", record.requestId(), ex);
             return new SubmitResult(updated, true);
         } catch (HttpClientErrorException.TooManyRequests ex) {
             FulfillmentRecord updated = repository.updateResult(
-                    record.requestId(), FulfillmentStatus.FAILED, null, null, "PARTNER_RATE_LIMITED", null,
+                    record.requestId(), FulfillmentStatus.RETRYABLE_FAILURE, null, null, "PARTNER_RATE_LIMITED", null,
                     "Partner returned HTTP 429 after configured retries");
             metrics.failedRequests().increment();
             return new SubmitResult(updated, true);
