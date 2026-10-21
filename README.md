@@ -24,11 +24,13 @@ Services:
 - `mysql`: durable gateway idempotency and fulfillment state.
 - `prometheus`: optional metrics scraper using Docker Compose profile `observability`.
 
+The project targets Java 21 LTS for broad enterprise runtime and hiring-market compatibility; the reliability patterns demonstrated here do not depend on newer JDK features.
+
 ## Quick Start
 
 Prerequisites:
 
-- JDK 27
+- JDK 21 (LTS)
 - Docker with Docker Compose
 - k6 only for opt-in performance tests
 
@@ -202,7 +204,7 @@ Docker is required for Testcontainers. If Docker is unavailable, integration tes
 
 `make verify` is the acceptance gate for the project. It runs Maven `clean verify`, which includes:
 
-- Maven Enforcer: JDK 27 and dependency convergence.
+- Maven Enforcer: JDK 21 and dependency convergence.
 - Checkstyle: class/method size, executable statement count, complexity, coupling, import hygiene, and basic maintainability rules.
 - PMD CPD: duplicate-code detection for repeated blocks above 80 tokens.
 - JaCoCo: minimum 70% class coverage and 70% method coverage per module.
@@ -223,7 +225,7 @@ make performance-overload
 make performance-fault
 ```
 
-Profiles separate normal baseline behavior from intentional limiter overload and upstream failure injection. The duplicate model reuses the same idempotency key and payload twice per group. No benchmark results are included because k6 has not been run in this environment; record machine details, throughput, p95/p99, error rate, and gateway limiter response rate in `docs/performance-results.md` after execution.
+Profiles separate normal baseline behavior from intentional limiter overload and upstream failure injection. The duplicate model reuses the same idempotency key and payload twice per group. Local 30-second results, machine details, p95/p99 latency, failure rate, and limiter response rate are recorded in `docs/performance-results.md`; these are illustrative local measurements, not production capacity claims.
 
 ## Trade-offs
 

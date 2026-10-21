@@ -1,8 +1,6 @@
 package com.example.integrationgateway.api;
 
 import com.example.integrationgateway.application.IdempotencyConflictException;
-import com.example.integrationgateway.application.PartnerUnavailableException;
-import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
@@ -22,16 +20,6 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IdempotencyConflictException.class)
     ResponseEntity<ErrorResponse> conflict(IdempotencyConflictException ex, HttpServletRequest request) {
         return error(HttpStatus.CONFLICT, ex.getMessage(), request);
-    }
-
-    @ExceptionHandler({RequestNotPermitted.class})
-    ResponseEntity<ErrorResponse> rateLimited(Exception ex, HttpServletRequest request) {
-        return error(HttpStatus.TOO_MANY_REQUESTS, "Outbound partner rate limit exceeded", request);
-    }
-
-    @ExceptionHandler(PartnerUnavailableException.class)
-    ResponseEntity<ErrorResponse> unavailable(PartnerUnavailableException ex, HttpServletRequest request) {
-        return error(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), request);
     }
 
     @ExceptionHandler(MissingRequestHeaderException.class)

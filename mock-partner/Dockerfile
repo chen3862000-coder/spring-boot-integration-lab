@@ -1,9 +1,9 @@
-FROM eclipse-temurin:27-jdk AS build
+FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
 COPY . .
 RUN ./mvnw -pl mock-partner -am -DskipTests package
 
-FROM eclipse-temurin:27-jre
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /workspace/mock-partner/target/mock-partner-*.jar app.jar
 RUN apt-get update \
