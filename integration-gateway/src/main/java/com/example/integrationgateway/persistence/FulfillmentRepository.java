@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+/** Persists gateway fulfillment state and arbitrates idempotency-key ownership in MySQL. */
 @Repository
 public class FulfillmentRepository {
 
@@ -18,6 +19,13 @@ public class FulfillmentRepository {
         this.jdbcClient = jdbcClient;
     }
 
+    /**
+     * Registers a new submission or returns its existing idempotency record.
+     *
+     * <p>{@link Registration#created()} means this caller owns execution, including a successful reclaim of an
+     * eligible retryable failure. {@link Registration#samePayload()} is false when the key was used with another
+     * request hash. A database unique constraint arbitrates concurrent claims.
+     */
     @Transactional
     public Registration register(String idempotencyKey, String requestHash, String orderId, String sku, int quantity) {
         String requestId = "REQ-" + UUID.randomUUID();
@@ -64,6 +72,7 @@ public class FulfillmentRepository {
                 };
     }
 
+    /** Finds the persisted record associated with an idempotency key. */
     public Optional<FulfillmentRecord> findByIdempotencyKey(String idempotencyKey) {
         return jdbcClient.sql("select * from fulfillment_requests where idempotency_key = :idempotencyKey")
                 .param("idempotencyKey", idempotencyKey)
@@ -71,6 +80,7 @@ public class FulfillmentRepository {
                 .optional();
     }
 
+    /** Finds the persisted record associated with a gateway request ID. */
     public Optional<FulfillmentRecord> findByRequestId(String requestId) {
         return jdbcClient.sql("select * from fulfillment_requests where request_id = :requestId")
                 .param("requestId", requestId)
@@ -78,6 +88,7 @@ public class FulfillmentRepository {
                 .optional();
     }
 
+    /** Updates the recorded partner outcome and returns the resulting persisted state. */
     @Transactional
     public FulfillmentRecord updateResult(String requestId, FulfillmentStatus status, String partnerRequestId,
                                           String partnerReference, String failureCode, String responseBody, String message) {
@@ -129,6 +140,7 @@ public class FulfillmentRepository {
         return timestamp == null ? null : timestamp.toInstant();
     }
 
+    /** Result of idempotency registration; {@code created} denotes execution ownership, not only row insertion. */
     public record Registration(FulfillmentRecord record, boolean created, boolean samePayload) {
     }
 }

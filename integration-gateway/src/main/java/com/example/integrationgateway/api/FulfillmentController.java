@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
 
+/** Merchant-facing fulfillment submission and status API. */
 @RestController
 @Validated
 @RequestMapping("/api/fulfillments")
@@ -32,6 +33,18 @@ public class FulfillmentController {
         this.fulfillmentService = fulfillmentService;
     }
 
+    /**
+     * Submits a fulfillment command using the required idempotency key.
+     *
+     * <p>The key must be nonblank and at most 200 characters. Reusing it with a different payload returns 409. An
+     * eligible retryable outcome can be reclaimed; other duplicates return the stored result. New completions return
+     * 201, completed replays return 200, and processing or unknown outcomes return 202. Gateway rate limiting returns
+     * 429; partner failures return 502 or 503 according to their failure code.
+     *
+     * @param idempotencyKey identity for this logical submission
+     * @param partnerFault optional local-demo fault scenario; ignored unless fault injection is enabled
+     * @param request validated order-line fulfillment command
+     */
     @PostMapping
     ResponseEntity<FulfillmentResponse> submit(
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 200) String idempotencyKey,
@@ -44,6 +57,11 @@ public class FulfillmentController {
                 .body(FulfillmentResponse.from(result.record()));
     }
 
+    /**
+     * Returns the stored outcome for a gateway request ID, or 404 when it is unknown.
+     *
+     * <p>This reads gateway state only; it does not query the partner or reconcile an unknown outcome.
+     */
     @GetMapping("/{requestId}")
     ResponseEntity<FulfillmentResponse> get(@PathVariable String requestId) {
         return fulfillmentService.find(requestId)
@@ -80,6 +98,7 @@ public class FulfillmentController {
         return HttpStatus.ACCEPTED;
     }
 
+    /** Request body for one order-line fulfillment command; IDs must be nonblank and at most 100 characters. */
     public record FulfillmentRequest(
             @NotBlank @Size(max = 100) String orderId,
             @NotBlank @Size(max = 100) String sku,

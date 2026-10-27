@@ -18,6 +18,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.net.http.HttpClient;
 
+/** Translates gateway fulfillment operations to the partner HTTP protocol and applies outbound resilience policies. */
 @Component
 public class PartnerClient {
 
@@ -51,6 +52,13 @@ public class PartnerClient {
         this.rateLimiter = rateLimiterRegistry.rateLimiter("partnerApi");
     }
 
+    /**
+     * Sends a partner write using the idempotency key and configured retry, circuit-breaker, and rate-limit policies.
+     *
+     * <p>Transport failures are reported as ambiguous because the partner may have committed the write. HTTP 429 and
+     * 5xx responses are retry candidates; other partner error responses are non-retryable. The fault scenario is only
+     * forwarded when demo fault injection is enabled.
+     */
     public PartnerResponse createFulfillment(FulfillmentRecord record, String idempotencyKey, String partnerFault) {
         try {
             return circuitBreaker.executeSupplier(() -> retry.executeSupplier(
@@ -83,6 +91,11 @@ public class PartnerClient {
         }
     }
 
+    /**
+     * Looks up a partner operation, typically to reconcile an ambiguous write.
+     *
+     * <p>This lookup does not use the POST operation's retry, circuit-breaker, or rate-limiter decorators.
+     */
     public PartnerResponse getFulfillment(String partnerRequestId, String idempotencyKey) {
         return restClient.get()
                 .uri("/partner/fulfillments/{partnerRequestId}", partnerRequestId)

@@ -12,6 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.UUID;
 
+/** Validates or generates a correlation ID and scopes it to the request log context. */
 @Component
 public class CorrelationFilter extends OncePerRequestFilter {
     @Override

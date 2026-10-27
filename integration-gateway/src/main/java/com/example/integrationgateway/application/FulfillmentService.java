@@ -24,6 +24,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Optional;
 
+/** Coordinates idempotent fulfillment submission and partner outcome handling. */
 @Service
 public class FulfillmentService {
 
@@ -42,6 +43,14 @@ public class FulfillmentService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Claims or replays an idempotent submission, calls the partner for the owner, and persists the outcome.
+     *
+     * <p>Ambiguous transport outcomes are reconciled when possible and remain {@code UNKNOWN} otherwise. Only selected
+     * dependency failures are eligible for a later same-key retry; a key reused with a different payload conflicts.
+     *
+     * @throws IdempotencyConflictException if the key is already associated with a different payload
+     */
     public SubmitResult submit(String idempotencyKey, String partnerFault, FulfillmentRequest request) {
         metrics.totalRequests().increment();
         String requestHash = hash(request);
@@ -112,6 +121,7 @@ public class FulfillmentService {
         }
     }
 
+    /** Returns the persisted gateway state identified by its request ID. */
     public Optional<FulfillmentRecord> find(String requestId) {
         return repository.findByRequestId(requestId);
     }
