@@ -6,8 +6,7 @@ Required evidence:
 
 - `./mvnw clean verify` passes on JDK 21 with Docker available for Testcontainers MySQL.
 - GitHub Actions `compose-smoke` starts the actual Compose images and verifies normal fulfillment plus timeout-after-commit reconciliation against the real mock partner.
-- Checkstyle passes for method length, complexity, coupling, imports, and basic maintainability rules.
-- Checkstyle passes for source-level maintainability gates including size, complexity, imports, and coupling.
+- Checkstyle passes for size, method length, complexity, coupling, imports, and maintainability rules.
 - PMD CPD reports no duplicate blocks above 80 tokens.
 - JaCoCo class coverage is at least 70% per module.
 - JaCoCo method coverage is at least 70% per module.
