@@ -4,7 +4,7 @@
 
 A unique constraint on `idempotency_key` is the concurrency control mechanism. This is safer than in-memory locks because it works across threads and future gateway replicas.
 
-The MySQL schema declares its status index inside `CREATE TABLE`, and repository updates use an update followed by a select in a short transaction. No PostgreSQL `RETURNING` syntax is used.
+The MySQL schema declares its status index inside `CREATE TABLE`, and repository updates use an update followed by a select in a short transaction.
 
 ## Conservative write retry
 
@@ -16,4 +16,4 @@ If the gateway cannot determine whether the partner processed a request, it stor
 
 ## Local rate limiter
 
-The MVP uses a single-process Resilience4j rate limiter. A production multi-replica deployment would need shared quota coordination.
+The reference implementation uses a single-process Resilience4j rate limiter. A production multi-replica deployment would need shared quota coordination.

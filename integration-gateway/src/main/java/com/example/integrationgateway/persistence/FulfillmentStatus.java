@@ -10,10 +10,5 @@ public enum FulfillmentStatus {
     /** A selected transient dependency failure may be reclaimed by a later same-key request. */
     RETRYABLE_FAILURE,
     /** Partner execution could not be confirmed or ruled out. */
-    UNKNOWN;
-
-    /** Returns whether this state represents confirmed success. */
-    public boolean isTerminalSuccess() {
-        return this == COMPLETED;
-    }
+    UNKNOWN
 }

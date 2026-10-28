@@ -10,7 +10,6 @@ public final class Correlation {
     }
 
     public static String current() {
-        String value = MDC.get(MDC_KEY);
-        return value == null || value.isBlank() ? "missing-correlation-id" : value;
+        return MDC.get(MDC_KEY);
     }
 }

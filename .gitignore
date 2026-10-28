@@ -5,3 +5,10 @@ target/
 .vscode/
 .DS_Store
 *.log
+*.iml
+.classpath
+.project
+.settings/
+out/
+build/
+*.hprof

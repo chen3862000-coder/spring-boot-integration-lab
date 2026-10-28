@@ -7,7 +7,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/integration_lab?useSSL=false&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:integration}
-    password: ${SPRING_DATASOURCE_PASSWORD:integration}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   sql:
     init:
       mode: always

@@ -6,6 +6,7 @@ import com.example.integrationgateway.client.PartnerClient.AmbiguousPartnerExcep
 import com.example.integrationgateway.client.PartnerClient.PartnerResponse;
 import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import com.example.integrationgateway.observability.IntegrationMetrics;
+import com.example.integrationgateway.persistence.FailureCode;
 import com.example.integrationgateway.persistence.FulfillmentRecord;
 import com.example.integrationgateway.persistence.FulfillmentRepository;
 import com.example.integrationgateway.persistence.FulfillmentStatus;
@@ -18,7 +19,6 @@ import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -84,36 +84,36 @@ public class FulfillmentService {
             return new SubmitResult(reconciled, true);
         } catch (RequestNotPermitted ex) {
             FulfillmentRecord limited = repository.updateResult(
-                    record.requestId(), FulfillmentStatus.RETRYABLE_FAILURE, null, null, "OUTBOUND_RATE_LIMITED", null,
+                    record.requestId(), FulfillmentStatus.RETRYABLE_FAILURE, null, null, FailureCode.OUTBOUND_RATE_LIMITED.code(), null,
                     "Gateway outbound partner quota rejected the call");
             return new SubmitResult(limited, true);
         } catch (PartnerUnavailableException ex) {
             FulfillmentRecord updated = repository.updateResult(
-                    record.requestId(), FulfillmentStatus.RETRYABLE_FAILURE, null, null, "CIRCUIT_OPEN", null,
+                    record.requestId(), FulfillmentStatus.RETRYABLE_FAILURE, null, null, FailureCode.CIRCUIT_OPEN.code(), null,
                     "Outbound partner call was rejected before transmission");
             log.warn("Partner unavailable for requestId={}", record.requestId(), ex);
             return new SubmitResult(updated, true);
         } catch (HttpClientErrorException.TooManyRequests ex) {
             FulfillmentRecord updated = repository.updateResult(
-                    record.requestId(), FulfillmentStatus.RETRYABLE_FAILURE, null, null, "PARTNER_RATE_LIMITED", null,
+                    record.requestId(), FulfillmentStatus.RETRYABLE_FAILURE, null, null, FailureCode.PARTNER_RATE_LIMITED.code(), null,
                     "Partner returned HTTP 429 after configured retries");
             metrics.failedRequests().increment();
             return new SubmitResult(updated, true);
         } catch (RestClientResponseException ex) {
             FulfillmentRecord updated = repository.updateResult(
-                    record.requestId(), FulfillmentStatus.FAILED, null, null, "PARTNER_FAILURE", null,
+                    record.requestId(), FulfillmentStatus.FAILED, null, null, FailureCode.PARTNER_FAILURE.code(), null,
                     "Partner returned HTTP " + ex.getStatusCode().value());
             metrics.failedRequests().increment();
             return new SubmitResult(updated, true);
         } catch (PartnerClient.NonRetryablePartnerException ex) {
             FulfillmentRecord updated = repository.updateResult(
-                    record.requestId(), FulfillmentStatus.FAILED, null, null, "PARTNER_FAILURE", null,
+                    record.requestId(), FulfillmentStatus.FAILED, null, null, FailureCode.PARTNER_FAILURE.code(), null,
                     ex.getMessage());
             metrics.failedRequests().increment();
             return new SubmitResult(updated, true);
         } catch (RestClientException ex) {
             FulfillmentRecord updated = repository.updateResult(
-                    record.requestId(), FulfillmentStatus.UNKNOWN, record.requestId(), null, "UNKNOWN_OUTCOME", null,
+                    record.requestId(), FulfillmentStatus.UNKNOWN, record.requestId(), null, FailureCode.UNKNOWN_OUTCOME.code(), null,
                     "Partner response could not be interpreted; execution outcome is unknown");
             metrics.unknownOutcomes().increment();
             log.warn("Could not interpret partner response for requestId={}", record.requestId(), ex);
@@ -137,7 +137,7 @@ public class FulfillmentService {
             metrics.unknownOutcomes().increment();
             log.warn("Could not reconcile ambiguous requestId={}", record.requestId(), reconciliationFailure);
             return repository.updateResult(record.requestId(), FulfillmentStatus.UNKNOWN,
-                    record.requestId(), null, "UNKNOWN_OUTCOME", null, ex.getMessage());
+                    record.requestId(), null, FailureCode.UNKNOWN_OUTCOME.code(), null, ex.getMessage());
         }
     }
 
@@ -155,7 +155,7 @@ public class FulfillmentService {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JacksonException ex) {
-            return new String(value.toString().getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+            return value.toString();
         }
     }
 }

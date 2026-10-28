@@ -1,5 +1,6 @@
 package com.example.integrationgateway.persistence;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,47 +30,45 @@ public class FulfillmentRepository {
     @Transactional
     public Registration register(String idempotencyKey, String requestHash, String orderId, String sku, int quantity) {
         String requestId = "REQ-" + UUID.randomUUID();
-        int inserted = jdbcClient.sql("""
-                insert ignore into fulfillment_requests
-                    (idempotency_key, request_hash, request_id, order_id, sku, quantity, status, message)
-                values (:idempotencyKey, :requestHash, :requestId, :orderId, :sku, :quantity, 'PROCESSING',
-                        'Registered for partner execution')
-                """)
-                .param("idempotencyKey", idempotencyKey)
-                .param("requestHash", requestHash)
-                .param("requestId", requestId)
-                .param("orderId", orderId)
-                .param("sku", sku)
-                .param("quantity", quantity)
-                .update();
-        FulfillmentRecord existing = findByIdempotencyKey(idempotencyKey).orElseThrow();
-        if (inserted == 1) {
-            return new Registration(existing, true, true);
-        }
-        boolean samePayload = requestHash.equals(existing.requestHash());
-        if (samePayload && isRetryableFailure(existing)) {
-            int reclaimed = jdbcClient.sql("""
-                    update fulfillment_requests
-                    set status = 'PROCESSING', failure_code = null, message = 'Retrying after transient dependency failure'
-                    where idempotency_key = :idempotencyKey and status = 'RETRYABLE_FAILURE'
-                      and failure_code in ('OUTBOUND_RATE_LIMITED', 'CIRCUIT_OPEN', 'PARTNER_RATE_LIMITED')
+        try {
+            jdbcClient.sql("""
+                    insert into fulfillment_requests
+                        (idempotency_key, request_hash, request_id, order_id, sku, quantity, status, message)
+                    values (:idempotencyKey, :requestHash, :requestId, :orderId, :sku, :quantity, 'PROCESSING',
+                            'Registered for partner execution')
                     """)
                     .param("idempotencyKey", idempotencyKey)
+                    .param("requestHash", requestHash)
+                    .param("requestId", requestId)
+                    .param("orderId", orderId)
+                    .param("sku", sku)
+                    .param("quantity", quantity)
                     .update();
-            if (reclaimed == 1) {
-                return new Registration(findByIdempotencyKey(idempotencyKey).orElseThrow(), true, true);
+            return new Registration(findByIdempotencyKey(idempotencyKey).orElseThrow(), true, true);
+        } catch (DuplicateKeyException ex) {
+            FulfillmentRecord existing = findByIdempotencyKey(idempotencyKey).orElseThrow();
+            boolean samePayload = requestHash.equals(existing.requestHash());
+            if (samePayload && isRetryableFailure(existing)) {
+                int reclaimed = jdbcClient.sql("""
+                        update fulfillment_requests
+                        set status = 'PROCESSING', failure_code = null, message = 'Retrying after transient dependency failure'
+                        where idempotency_key = :idempotencyKey and status = 'RETRYABLE_FAILURE'
+                          and failure_code in ('OUTBOUND_RATE_LIMITED', 'CIRCUIT_OPEN', 'PARTNER_RATE_LIMITED')
+                        """)
+                        .param("idempotencyKey", idempotencyKey)
+                        .update();
+                if (reclaimed == 1) {
+                    return new Registration(findByIdempotencyKey(idempotencyKey).orElseThrow(), true, true);
+                }
+                existing = findByIdempotencyKey(idempotencyKey).orElseThrow();
             }
-            existing = findByIdempotencyKey(idempotencyKey).orElseThrow();
+            return new Registration(existing, false, samePayload);
         }
-        return new Registration(existing, false, samePayload);
     }
 
     private boolean isRetryableFailure(FulfillmentRecord record) {
         return record.status() == FulfillmentStatus.RETRYABLE_FAILURE
-                && switch (record.failureCode()) {
-                    case "OUTBOUND_RATE_LIMITED", "CIRCUIT_OPEN", "PARTNER_RATE_LIMITED" -> true;
-                    default -> false;
-                };
+                && FailureCode.isRetryable(record.failureCode());
     }
 
     /** Finds the persisted record associated with an idempotency key. */

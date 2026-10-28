@@ -1,7 +1,13 @@
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /workspace
+COPY .mvn .mvn
+COPY mvnw mvnw.cmd ./
+COPY pom.xml ./
+COPY integration-gateway/pom.xml integration-gateway/pom.xml
+COPY mock-partner/pom.xml mock-partner/pom.xml
+RUN ./mvnw -B -DskipTests dependency:go-offline
 COPY . .
-RUN ./mvnw -pl integration-gateway -am -DskipTests package
+RUN ./mvnw -B -pl integration-gateway -am -DskipTests package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

@@ -1,10 +1,8 @@
 # Spring Boot Integration Lab
 
-[![Verify](https://github.com/chen3862000-coder/spring-boot-integration-lab/actions/workflows/verify.yml/badge.svg)](https://github.com/chen3862000-coder/spring-boot-integration-lab/actions/workflows/verify.yml)
-
 Building Reliable Integrations with Unreliable External APIs.
 
-This portfolio project demonstrates a focused e-commerce fulfillment gateway that integrates with an unreliable external partner API. It is not a CRUD application; it is a reliability engineering lab for outbound API integration.
+This reference implementation demonstrates a focused e-commerce fulfillment gateway that integrates with an unreliable external partner API. It is not a CRUD application; it is a reliability engineering lab for outbound API integration.
 
 ## Architecture
 
@@ -24,7 +22,7 @@ Services:
 - `mysql`: durable gateway idempotency and fulfillment state.
 - `prometheus`: optional metrics scraper using Docker Compose profile `observability`.
 
-The project targets Java 21 LTS for broad enterprise runtime and hiring-market compatibility; the reliability patterns demonstrated here do not depend on newer JDK features.
+The project targets Java 21 LTS for broad enterprise runtime compatibility; the reliability patterns demonstrated here do not depend on newer JDK features.
 
 ## Documentation
 
@@ -33,7 +31,7 @@ The project targets Java 21 LTS for broad enterprise runtime and hiring-market c
 - [Design decisions](docs/design-decisions.md)
 - [Failure scenarios](docs/failure-scenarios.md)
 - [Performance results](docs/performance-results.md)
-- [Portfolio case study](docs/portfolio-case-study.md)
+- [Case study](docs/case-study.md)
 
 ## Quick Start
 
@@ -240,9 +238,9 @@ Profiles separate normal baseline behavior from intentional limiter overload and
 
 - MySQL is used because idempotency state must survive gateway restarts and support uniqueness under concurrency.
 - Database transactions are kept short and are not held open while waiting on the partner API.
-- The mock partner uses in-memory deduplication for MVP simplicity; its idempotency state is not restart-safe.
-- The rate limiter is process-local and protects outbound attempts per gateway process. Multiple gateway replicas would need distributed quota coordination for a shared partner-wide limit; this MVP does not claim horizontally coordinated throughput.
-- There is no background reconciliation worker in this MVP. Ambiguous operations are persisted and can be reconciled through partner status lookup.
+- The mock partner uses in-memory deduplication for simplicity; its idempotency state is not restart-safe.
+- The rate limiter is process-local and protects outbound attempts per gateway process. Multiple gateway replicas would need distributed quota coordination for a shared partner-wide limit; this reference implementation does not claim horizontally coordinated throughput.
+- There is no background reconciliation worker in this reference implementation. Ambiguous operations are persisted and can be reconciled through partner status lookup.
 - Authentication, authorization, tracing infrastructure, alerting, and multi-partner routing are intentionally out of scope. Compose credentials and fault injection are local-demo-only; published ports bind to loopback.
 
 ## Production Follow-up

@@ -2,6 +2,7 @@ package com.example.integrationgateway.api;
 
 import com.example.integrationgateway.application.FulfillmentService;
 import com.example.integrationgateway.application.SubmitResult;
+import com.example.integrationgateway.persistence.FailureCode;
 import com.example.integrationgateway.persistence.FulfillmentRecord;
 import com.example.integrationgateway.persistence.FulfillmentStatus;
 import jakarta.validation.Valid;
@@ -77,16 +78,16 @@ public class FulfillmentController {
     }
 
     private HttpStatus responseStatus(FulfillmentStatus status, String failureCode, boolean created) {
-        if ("OUTBOUND_RATE_LIMITED".equals(failureCode)) {
+        if (FailureCode.OUTBOUND_RATE_LIMITED.code().equals(failureCode)) {
             return HttpStatus.TOO_MANY_REQUESTS;
         }
-        if ("CIRCUIT_OPEN".equals(failureCode)) {
+        if (FailureCode.CIRCUIT_OPEN.code().equals(failureCode)) {
             return HttpStatus.SERVICE_UNAVAILABLE;
         }
-        if ("PARTNER_RATE_LIMITED".equals(failureCode)) {
+        if (FailureCode.PARTNER_RATE_LIMITED.code().equals(failureCode)) {
             return HttpStatus.SERVICE_UNAVAILABLE;
         }
-        if ("PARTNER_FAILURE".equals(failureCode)) {
+        if (FailureCode.PARTNER_FAILURE.code().equals(failureCode)) {
             return HttpStatus.BAD_GATEWAY;
         }
         if (status == FulfillmentStatus.COMPLETED) {

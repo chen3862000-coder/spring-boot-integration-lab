@@ -1,4 +1,4 @@
-# Portfolio Case Study: Spring Boot Integration Lab
+# Case Study: Spring Boot Integration Lab
 
 ## 1. The Problem
 
@@ -28,11 +28,11 @@ Deterministic fault injection supports HTTP 500, HTTP 429, slow responses, servi
 
 ## 7. Testing and Performance Results
 
-Automated tests cover core reliability behavior using Spring Boot Test, Testcontainers MySQL, and WireMock. k6 smoke, baseline, overload, and fault-profile measurements from a local MacBook Air run are recorded in [Performance Results](performance-results.md), including environment, throughput, p95/p99 latency, HTTP failure rate, and limiter responses. These short local runs demonstrate behavior and are not production capacity claims.
+Automated tests cover core reliability behavior using Spring Boot Test, Testcontainers MySQL, and WireMock. k6 smoke, baseline, overload, and fault-profile measurements from a local run are recorded in [Performance Results](performance-results.md), including environment, throughput, p95/p99 latency, HTTP failure rate, and limiter responses. These short local runs demonstrate behavior and are not production capacity claims.
 
 ## 8. Production Trade-offs
 
-Production extensions would include authentication, durable partner-side idempotency, distributed rate limiting, reconciliation workers, alerting, and possibly distributed tracing. These are intentionally excluded from the MVP to keep the reliability patterns clear.
+Production extensions would include authentication, durable partner-side idempotency, distributed rate limiting, reconciliation workers, alerting, and possibly distributed tracing. These are intentionally excluded from the reference implementation to keep the reliability patterns clear.
 
 ## 9. Business Value
 

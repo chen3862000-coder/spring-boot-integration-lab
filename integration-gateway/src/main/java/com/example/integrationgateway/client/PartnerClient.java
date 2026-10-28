@@ -72,8 +72,11 @@ public class PartnerClient {
         try {
             RestClient.RequestBodySpec requestSpec = restClient.post()
                     .uri("/partner/fulfillments")
-                    .header("Idempotency-Key", idempotencyKey)
-                    .header("X-Correlation-ID", Correlation.current());
+                    .header("Idempotency-Key", idempotencyKey);
+            String correlationId = Correlation.current();
+            if (correlationId != null) {
+                requestSpec.header(Correlation.HEADER, correlationId);
+            }
             if (faultInjectionEnabled && partnerFault != null && !partnerFault.isBlank()) {
                 requestSpec.header("X-Partner-Fault", partnerFault);
             }
@@ -97,12 +100,14 @@ public class PartnerClient {
      * <p>This lookup does not use the POST operation's retry, circuit-breaker, or rate-limiter decorators.
      */
     public PartnerResponse getFulfillment(String partnerRequestId, String idempotencyKey) {
-        return restClient.get()
+        RestClient.RequestHeadersSpec<?> requestSpec = restClient.get()
                 .uri("/partner/fulfillments/{partnerRequestId}", partnerRequestId)
-                .header("Idempotency-Key", idempotencyKey)
-                .header("X-Correlation-ID", Correlation.current())
-                .retrieve()
-                .body(PartnerResponse.class);
+                .header("Idempotency-Key", idempotencyKey);
+        String correlationId = Correlation.current();
+        if (correlationId != null) {
+            requestSpec = requestSpec.header(Correlation.HEADER, correlationId);
+        }
+        return requestSpec.retrieve().body(PartnerResponse.class);
     }
 
     public record PartnerRequest(String partnerRequestId, String orderId, String sku, int quantity) {
