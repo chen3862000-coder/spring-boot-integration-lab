@@ -32,20 +32,35 @@ The project targets Java 21 LTS for broad enterprise runtime compatibility; the 
 - [Failure scenarios](docs/failure-scenarios.md)
 - [Performance results](docs/performance-results.md)
 - [Case study](docs/case-study.md)
+- [Running the cluster natively](docs/local-cluster.md)
 
 ## Quick Start
 
 Prerequisites:
 
 - JDK 21 (LTS)
-- Docker with Docker Compose
+- Docker with Docker Compose, or a locally installed MySQL 8.4 server for the native workflow
 - k6 only for opt-in performance tests
+
+### Docker Compose
 
 Run the full stack:
 
 ```bash
 docker compose up --build
 ```
+
+### Native (No Docker)
+
+Run MySQL, the mock partner, and the gateway as host processes:
+
+```bash
+./scripts/start-cluster.sh
+./scripts/status-cluster.sh
+./scripts/stop-cluster.sh
+```
+
+Start the optional Prometheus instance with `--with-prometheus`. When administrative access is available, the scripts create the database and application user, then build both jars, wait for health checks, and write logs and PID files under `.run/`. See [Running the cluster natively](docs/local-cluster.md) for prerequisites, configuration, and troubleshooting.
 
 Run tests:
 
