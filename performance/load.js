@@ -5,23 +5,57 @@ import { Rate } from 'k6/metrics';
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const PROFILE = __ENV.PROFILE || 'baseline';
 const SETTINGS = {
-  baseline: { vus: 5, duration: '60s', failThreshold: 'rate<0.02', faultRate: 0 },
-  overload: { vus: 20, duration: '60s', failThreshold: 'rate<0.80', faultRate: 0 },
-  fault: { vus: 5, duration: '60s', failThreshold: 'rate<0.25', faultRate: 0.1 },
+  baseline: {
+    vus: 5,
+    duration: '60s',
+    failThreshold: 'rate<0.02',
+    rateLimitedThreshold: 'rate<0.05',
+    latencyThreshold: 'p(95)<5000',
+    faultRate: 0,
+  },
+  overload: {
+    vus: 20,
+    duration: '60s',
+    failThreshold: 'rate<0.80',
+    rateLimitedThreshold: 'rate<1',
+    latencyThreshold: 'p(95)<5000',
+    faultRate: 0,
+  },
+  fault: {
+    vus: 5,
+    duration: '60s',
+    failThreshold: 'rate<0.25',
+    rateLimitedThreshold: 'rate<1',
+    latencyThreshold: 'p(95)<5000',
+    faultRate: 0.1,
+  },
+  cluster: {
+    vus: 20,
+    duration: '60s',
+    failThreshold: 'rate<0.01',
+    rateLimitedThreshold: 'rate<0.01',
+    latencyThreshold: 'p(95)<1000',
+    throughputThreshold: 'rate>15',
+    faultRate: 0,
+  },
 };
 const settings = SETTINGS[PROFILE];
-if (!settings) throw new Error(`Unknown PROFILE '${PROFILE}'. Use baseline, overload, or fault.`);
+if (!settings) throw new Error(`Unknown PROFILE '${PROFILE}'. Use baseline, overload, fault, or cluster.`);
 const rateLimited = new Rate('gateway_rate_limited');
+const thresholds = {
+  http_req_failed: [settings.failThreshold],
+  http_req_duration: [settings.latencyThreshold],
+  gateway_rate_limited: [settings.rateLimitedThreshold],
+};
+if (settings.throughputThreshold) {
+  thresholds.http_reqs = [settings.throughputThreshold];
+}
 
 export const options = {
   vus: Number(__ENV.VUS || settings.vus),
   duration: __ENV.DURATION || settings.duration,
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
-  thresholds: {
-    http_req_failed: [settings.failThreshold],
-    http_req_duration: ['p(95)<5000'],
-    gateway_rate_limited: PROFILE === 'baseline' ? ['rate<0.05'] : ['rate<1'],
-  },
+  thresholds,
 };
 
 export default function () {

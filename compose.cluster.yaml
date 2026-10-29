@@ -1,0 +1,98 @@
+name: spring-boot-integration-lab-cluster
+
+x-gateway: &gateway
+  build:
+    context: .
+    dockerfile: integration-gateway/Dockerfile
+  environment:
+    SPRING_PROFILES_ACTIVE: demo
+    SERVER_PORT: 8080
+    SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/integration_lab?useSSL=false&allowPublicKeyRetrieval=true
+    SPRING_DATASOURCE_USERNAME: integration
+    SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-integration_local_only}
+    PARTNER_BASE_URL: http://mock-partner:8081
+  depends_on:
+    mysql:
+      condition: service_healthy
+    mock-partner:
+      condition: service_healthy
+  expose:
+    - "8080"
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health | grep -q UP"]
+    interval: 5s
+    timeout: 3s
+    retries: 30
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: integration_lab
+      MYSQL_USER: integration
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-integration_local_only}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-integration_root_local_only}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uintegration -p$${MYSQL_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mock-partner:
+    build:
+      context: .
+      dockerfile: mock-partner/Dockerfile
+    environment:
+      SERVER_PORT: 8081
+      SPRING_PROFILES_ACTIVE: demo
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  gateway-a:
+    <<: *gateway
+    ports:
+      - "127.0.0.1:18080:8080"
+
+  gateway-b:
+    <<: *gateway
+    ports:
+      - "127.0.0.1:18081:8080"
+
+  gateway-c:
+    <<: *gateway
+    ports:
+      - "127.0.0.1:18082:8080"
+
+  gateway-d:
+    <<: *gateway
+    ports:
+      - "127.0.0.1:18083:8080"
+
+  gateway-lb:
+    image: nginx:1.28-alpine
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      gateway-a:
+        condition: service_healthy
+      gateway-b:
+        condition: service_healthy
+      gateway-c:
+        condition: service_healthy
+      gateway-d:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/nginx-health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql-data:

@@ -78,6 +78,12 @@ Run performance tests after the stack is up:
 make performance-test
 ```
 
+Run the four-replica horizontal-scaling evidence (starts and stops its own cluster):
+
+```bash
+make cluster-load-test
+```
+
 ## API Examples
 
 Normal fulfillment:
@@ -245,16 +251,19 @@ BASE_URL=http://localhost:8080 PROFILE=fault k6 run performance/load.js
 make performance-test
 make performance-overload
 make performance-fault
+make cluster-load-test
 ```
 
-Profiles separate normal baseline behavior from intentional limiter overload and upstream failure injection. The duplicate model reuses the same idempotency key and payload twice per group. Local 30-second results, machine details, p95/p99 latency, failure rate, and limiter response rate are recorded in `docs/performance-results.md`; these are illustrative local measurements, not production capacity claims.
+`make cluster-load-test` starts the four-replica nginx-backed cluster from `compose.cluster.yaml`, runs the `cluster` profile, reports per-gateway request counters, and tears the cluster down. Use `make cluster-load-test-keep` to leave it running for inspection.
+
+Profiles separate normal baseline behavior from intentional limiter overload and upstream failure injection. The duplicate model reuses the same idempotency key and payload twice per group. Local single-instance results and the four-replica 20-VU scaling evidence, including per-gateway distribution and caveats, are recorded in `docs/performance-results.md`; these are illustrative local measurements, not production capacity claims.
 
 ## Trade-offs
 
 - MySQL is used because idempotency state must survive gateway restarts and support uniqueness under concurrency.
 - Database transactions are kept short and are not held open while waiting on the partner API.
 - The mock partner uses in-memory deduplication for simplicity; its idempotency state is not restart-safe.
-- The rate limiter is process-local and protects outbound attempts per gateway process. Multiple gateway replicas would need distributed quota coordination for a shared partner-wide limit; this reference implementation does not claim horizontally coordinated throughput.
+- The rate limiter is process-local and protects outbound attempts per gateway process. The four-replica cluster load test in [Performance results](docs/performance-results.md) handles 20 VUs with zero limiter rejections; aggregate outbound quota scales with replica count, and a shared partner-wide limit would still require distributed coordination.
 - There is no background reconciliation worker in this reference implementation. Ambiguous operations are persisted and can be reconciled through partner status lookup.
 - Authentication, authorization, tracing infrastructure, alerting, and multi-partner routing are intentionally out of scope. Compose credentials and fault injection are local-demo-only; published ports bind to loopback.
 

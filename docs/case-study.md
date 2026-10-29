@@ -28,7 +28,7 @@ Deterministic fault injection supports HTTP 500, HTTP 429, slow responses, servi
 
 ## 7. Testing and Performance Results
 
-Automated tests cover core reliability behavior using Spring Boot Test, Testcontainers MySQL, and WireMock. k6 smoke, baseline, overload, and fault-profile measurements from a local run are recorded in [Performance Results](performance-results.md), including environment, throughput, p95/p99 latency, HTTP failure rate, and limiter responses. These short local runs demonstrate behavior and are not production capacity claims.
+Automated tests cover core reliability behavior using Spring Boot Test, Testcontainers MySQL, and WireMock. k6 smoke, baseline, overload, and fault-profile measurements from a local run are recorded in [Performance Results](performance-results.md), including environment, throughput, p95/p99 latency, HTTP failure rate, and limiter responses. The same document records a four-replica cluster run that handles 20 VUs with zero HTTP failures and zero limiter rejections. These short local runs demonstrate behavior and are not production capacity claims.
 
 ## 8. Production Trade-offs
 

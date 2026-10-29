@@ -1,4 +1,4 @@
-.PHONY: run cluster-start cluster-start-observability cluster-stop cluster-stop-mysql cluster-status quality verify performance-test performance-overload performance-fault clean
+.PHONY: run cluster-start cluster-start-observability cluster-stop cluster-stop-mysql cluster-status cluster-load-test cluster-load-test-keep quality verify performance-test performance-overload performance-fault clean
 
 run:
 	docker compose up --build
@@ -17,6 +17,12 @@ cluster-stop-mysql:
 
 cluster-status:
 	./scripts/status-cluster.sh
+
+cluster-load-test:
+	./scripts/run-cluster-load-test.sh
+
+cluster-load-test-keep:
+	KEEP_RUNNING=1 ./scripts/run-cluster-load-test.sh
 
 quality:
 	./mvnw -DskipTests checkstyle:check pmd:cpd-check

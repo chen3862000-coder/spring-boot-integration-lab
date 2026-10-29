@@ -183,7 +183,7 @@ The mock partner has a simpler path:
 - **At-least-once risk:** retries can repeat partner writes. Partner-side deduplication is necessary to prevent duplicate business effects; its in-memory implementation is illustrative and not restart-safe.
 - **Honest ambiguity:** timeout or an unreadable response is not proof of failure. Reconciliation may confirm completion; otherwise `UNKNOWN` remains visible as HTTP 202.
 - **Selective reclamation:** gateway limiter rejection, open circuit, and exhausted partner 429 are stored as retryable. The same key and payload can attempt later. Confirmed failures and unknown outcomes are not automatically reclaimed.
-- **Process-local protection:** Resilience4j rate limiting and circuit-breaker state are local to a gateway process. Multiple replicas would not share quota or breaker state.
+- **Process-local protection:** Resilience4j rate limiting and circuit-breaker state are local to a gateway process. Multiple replicas do not share quota or breaker state; the four-replica run in `performance-results.md` demonstrates request-tier scaling at 20 VUs, not a shared partner-wide quota.
 - **No asynchronous recovery:** there is no outbox, queue, scheduled reconciliation worker, or operator workflow for resolving unknown outcomes.
 
 These behaviors make the system a synchronous request/reply integration with durable request state, not an asynchronous process manager or saga implementation.

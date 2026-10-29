@@ -16,4 +16,4 @@ If the gateway cannot determine whether the partner processed a request, it stor
 
 ## Local rate limiter
 
-The reference implementation uses a single-process Resilience4j rate limiter. A production multi-replica deployment would need shared quota coordination.
+The reference implementation uses a single-process Resilience4j rate limiter. The four-replica cluster run in `performance-results.md` demonstrates request-tier scaling at 20 VUs; a production multi-replica deployment would still need shared quota coordination for a partner-wide limit.
